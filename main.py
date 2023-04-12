@@ -7,7 +7,6 @@ import urllib3
 
 from rich.console import Console
 from rich.table import Table
-from rich.align import Align
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
