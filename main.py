@@ -36,7 +36,7 @@ number_to_ranks = {
     20: "Diamond 3",
     21: "Immortal 1",
     22: "Immortal 2",
-    23: "Immortal 3",
+    23: "Immortal 3",   
     24: "Radiant"
 }
 
@@ -185,19 +185,25 @@ def addTableColumn(cols: list):
         table.add_column(col, justify = 'center')
 
 
-table = Table(title='Party')
 
-addTableColumn(['Name', 'Current Rank', 'Peak Rank', 'HS', 'KD', 'Level'])
 
-for index, player_puuid in enumerate(get_party_members_puuids()):
-    print(f"Fetching player {index + 1}...", end = '\r')
-    table.add_row(*[str(attr) for attr in get_player_stats(player_puuid).values()])
-    print(end = '\x1b[2K')    
-    print('Done.', end = '\r')
-    time.sleep(0.1)
-    print(end = '\x1b[2K')
+if __name__ == '__main__':
 
-print()
-console = Console()
-console.print(table, justify = 'center')
-console.print('(HS and KD are an average of the last 5 competitive matches the player has played)', justify = 'center')
+    # os.system('cls')
+
+    table = Table(title = 'Party')
+
+    addTableColumn(['Name', 'Current Rank', 'Peak Rank', 'HS', 'KD', 'Level'])
+
+    for index, player_puuid in enumerate(get_party_members_puuids()):
+        print(f"Fetching player {index + 1}...", end = '\r')
+        table.add_row(*[str(attr) for attr in get_player_stats(player_puuid).values()])
+        print(end = '\x1b[2K')    
+        print('Done.', end = '\r')
+        time.sleep(0.1)
+        print(end = '\x1b[2K')
+
+    print()
+    console = Console()
+    console.print(table, justify = 'center')
+    console.print('(HS and KD are an average of the last 5 competitive matches the player has played)', justify = 'center')
