@@ -1,5 +1,6 @@
 import base64
 import os
+import time
 
 import httpx
 import urllib3
@@ -43,6 +44,7 @@ number_to_ranks = {
 region = 'ap'
 glz_url = f"https://glz-{region}-1.{region}.a.pvp.net"
 pd_url = f"https://pd.{region}.a.pvp.net"
+henrik_url = "https://api.henrikdev.xyz"
 headers = {}
 
 
@@ -86,7 +88,7 @@ def get_headers():
     return headers
 
 
-def get_puuid():
+def get_self_puuid():
     local_headers = {}
     local_headers['Authorization'] = 'Basic ' + base64.b64encode(('riot:' + lockfile['password']).encode()).decode()
     response = httpx.get(
@@ -113,118 +115,56 @@ def get_name_from_puuid(puuid):
     }
 
 
-def get_hs(member):
-    player = {}
-    hs_resp1 = httpx.get(
-        pd_url + f"/mmr/v1/players/{get_puuid()}/competitiveupdates",
-        headers = get_headers(),
-        params = { 'startIndex': 0, 'endIndex': 1, 'queue': 'competitive'},
+def get_hs_and_kd(puuid):
+    hs_and_kd = {}
+    matches = httpx.get(
+        henrik_url + f"/valorant/v3/by-puuid/matches/{region}/{puuid}",
+        params = { 'filter': 'competitive' },
         verify = False
     )
-    try:
-        hs_resp = httpx.get(
-            pd_url + f"/match-details/v1/matches/{hs_resp1.json()['Matches'][0]['MatchID']}",
-            headers = get_headers(),
-            verify = False
-        )
-        if hs_resp.status_code == 404:
-            player['kd'] = "N/a"
-            player['hs'] = "N/a"
-            return player
-        total_hits = 0
-        total_headshots = 0
-        for rround in hs_resp.json()["roundResults"]:
-            for p in rround["playerStats"]:
-                if p["subject"] == get_puuid():
-                    for hits in p["damage"]:
-                        total_hits += hits["legshots"]
-                        total_hits += hits["bodyshots"]
-                        total_hits += hits["headshots"]
-                        total_headshots += hits["headshots"]
-        for p in hs_resp.json()["players"]:
-            if p["subject"] == get_puuid():
-                kills = p["stats"]["kills"]
-                deaths = p["stats"]["deaths"]
-        if deaths == 0:
-            kd = kills
-        elif kills == 0:
-            kd = 0
-        else:
-            kd = round(kills/deaths, 2)
-        player['kd'] = kd
-        player['hs'] = "N/a"
-        if total_hits == 0:
-            return player
-        player['hs'] = f"{int((total_headshots/total_hits)*100)}%"
-        return player
-    except KeyError:
-        return {'kd': 'N/a', 'hs': 'N/a'}
+    hits = 0
+    headshots = 0
+    kills = 0
+    deaths = 0
+    for match in matches.json()['data']:
+        for player in match['players']['all_players']:
+            if player['puuid'] == puuid:
+                hits += player['stats']['legshots']
+                hits += player['stats']['bodyshots']
+                hits += player['stats']['headshots']
+                headshots += player['stats']['headshots']
+                kills += player['stats']['kills']
+                deaths += player['stats']['deaths']
+    hs_and_kd['hs'] = f"{int((headshots / hits) * 100)}%"
+    hs_and_kd['kd'] = round(kills / deaths, 2)
+    return hs_and_kd
 
 
-def get_act_from_id(actId):
-    response = httpx.get(
-        f"https://shared.{region}.a.pvp.net/content-service/v3/content",
-        headers = get_headers(),
-        verify = False
-    ).json()
-    act = None
-    episode = None
-    act_found = False
-    for season in response["Seasons"]:
-        if season["ID"].lower() == actId.lower():
-            act = int(season["Name"][-1])
-            act_found = True
-        if act_found and season["Type"] == "episode":
-            episode = int(season["Name"][-1])
-            break
-    return f"e{episode}a{act}"
-
-
-def get_player_stats(member):
+def get_player_stats(puuid):
     key_order = ['name', 'current_rank', 'peak_rank_with_act', 'hs', 'kd', 'level']
     player = {}
-    player['name'] = get_name_from_puuid(member['Subject'])['full']
-    player['level'] = member['PlayerIdentity']['AccountLevel']
-    response = httpx.get(
-        pd_url + f"/mmr/v1/players/{member['Subject']}",
-        headers = get_headers(),
+    playerName = get_name_from_puuid(puuid)
+    player['name'] = playerName['full']
+    resp1 = httpx.get(
+        henrik_url + f"/valorant/v1/account/{playerName['username']}/{playerName['tag']}",
         verify = False
     ).json()
-    try:
-        rank = None
-        max_rank = None
-        max_rank_act = None
-        for act in response['QueueSkills']['competitive']['SeasonalInfoBySeasonID']:
-            get_act_from_id(act)
-            competitiveTier = response['QueueSkills']['competitive']['SeasonalInfoBySeasonID'][act]['CompetitiveTier']
-            rankIndex = response['QueueSkills']['competitive']['SeasonalInfoBySeasonID'][act]['Rank']
-            act_rank = max(competitiveTier, rankIndex)
-            if rank is None:
-                rank = act_rank
-                max_rank_act = get_act_from_id(act)
-            elif act_rank > rank:
-                if max_rank is None or act_rank > max_rank:
-                    max_rank = act_rank
-                    max_rank_act = get_act_from_id(act)
-            player['current_rank'] = number_to_ranks[rank]
-            try:
-                player['peak_rank'] = number_to_ranks[max_rank]
-            except KeyError:
-                player['peak_rank'] = number_to_ranks[rank]
-            player['peak_rank_act'] = max_rank_act
-            player['peak_rank_with_act'] = f"{player['peak_rank']} ({max_rank_act})"
-    except TypeError:
-        player['current_rank'] = 'Unranked'
-        player['peak_rank'] = 'Unranked'
-    hsAndKd = get_hs(member)
-    player['hs'] = hsAndKd['hs']
-    player['kd'] = hsAndKd['kd']
+    player['level'] = resp1['data']['account_level']
+    resp2 = httpx.get(
+        henrik_url + f"/valorant/v2/by-puuid/mmr/{region}/{puuid}",
+        verify = False
+    ).json()
+    player['current_rank'] = resp2['data']['current_data']['currenttierpatched']
+    # player['peak_rank'] = resp2['data']['highest_rank']['patched_tier']
+    player['peak_rank_with_act'] = f"{resp2['data']['highest_rank']['patched_tier']} ({resp2['data']['highest_rank']['season']})"
+    hs_and_kd = get_hs_and_kd(puuid)
+    player.update(hs_and_kd)
     return {k: player[k] for k in key_order}
 
 
-def get_party_members():
+def get_party_members_puuids():
     partyID = httpx.get(
-        glz_url + f"/parties/v1/players/{get_puuid()}",
+        glz_url + f"/parties/v1/players/{get_self_puuid()}",
         headers = get_headers(),
         verify = False
     ).json()
@@ -234,27 +174,30 @@ def get_party_members():
         verify = False
     ).json()
     #regex = f"aresriot.*{region}-gp-"
-    return_data = []
+    member_puuids = []
     for member in response['Members']:
-        return_data.append(get_player_stats(member))
-    return return_data
+        member_puuids.append(member['Subject'].lower())
+    return member_puuids
 
+
+def addTableColumn(cols: list):
+    for col in cols:
+        table.add_column(col, justify = 'center')
 
 
 table = Table(title='Party')
 
-table.add_column('Name', justify = 'center')
-table.add_column('Current Rank', justify = 'center')
-table.add_column('Peak Rank', justify = 'center')
-table.add_column('HS', justify = 'center')
-table.add_column('KD', justify = 'center')
-table.add_column('Level', justify = 'center')
+addTableColumn(['Name', 'Current Rank', 'Peak Rank', 'HS', 'KD', 'Level'])
 
-players = get_party_members()
-for player in players:
-    table.add_row(*[str(attr) for attr in player.values()])
+for index, player_puuid in enumerate(get_party_members_puuids()):
+    print(f"Fetching player {index + 1}...", end = '\r')
+    table.add_row(*[str(attr) for attr in get_player_stats(player_puuid).values()])
+    print(end = '\x1b[2K')    
+    print('Done.', end = '\r')
+    time.sleep(0.1)
+    print(end = '\x1b[2K')
 
 print()
 console = Console()
 console.print(table, justify = 'center')
-console.print('(HS and KD are of the last competitive match the player has played)', justify = 'center')
+console.print('(HS and KD are an average of the last 5 competitive matches the player has played)', justify = 'center')
