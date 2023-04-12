@@ -100,6 +100,18 @@ def get_self_puuid():
     return puuid
 
 
+def get_presences():
+    resp = httpx.get(
+        f"https://127.0.0.1:{lockfile['port']}/chat/v4/presences",
+        headers = {'Authorization': 'Basic ' + base64.b64encode(('riot:' + lockfile['password']).encode()).decode() },
+        verify = False
+    ).json()['presences']
+    for p in resp:
+        if p['puuid'] == get_self_puuid():
+            private_decoded = base64.b64decode(p['private'])
+# get_presences()
+
+
 def get_name_from_puuid(puuid):
     response = httpx.put(
         pd_url + f"/name-service/v2/players",
